@@ -538,9 +538,9 @@ VOS_STATUS vos_nv_open(void)
         {
             pnvEFSTable->nvValidityBitmap = DEFAULT_NV_VALIDITY_BITMAP;
             VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_FATAL,
-                      "!!!WARNING: INVALID NV FILE, DRIVER IS USING DEFAULT CAL VALUES %d %d!!!",
+                      "Size  mismatch INVALID NV FILE %d %d!!!",
                       nvReadBufSize, bufSize);
-            return VOS_STATUS_SUCCESS;
+            return VOS_STATUS_E_FAILURE;
         }
 
        /* Version mismatch */
@@ -979,6 +979,43 @@ VOS_STATUS vos_nv_readMacAddress( v_MAC_ADDRESS_t pMacAddress )
    return status;
 }
 
+static int pabx_hex_to_int(char c)
+{
+  if (c >= '0' && c <= '9')
+    return c-'0';
+  if (c >= 'a' && c <= 'f')
+    return c-'a'+10;
+  if (c >= 'A' && c <= 'F')
+    return c-'A'+10;
+  return 0;
+}
+
+
+void pabx_set_mac_from_taimport( v_U8_t *target, v_U8_t persona )
+{
+    #define TAIMPORT_BASE "/data/etc/wlan_macaddr"
+    #define TAMAC_LEN (VOS_MAC_ADDRESS_LEN*3 - 1) // tafile is missing the null byte: 6*3 - 1 = 17 (00:00:00:00:00:00)
+    char buff[TAMAC_LEN];
+    char *path = __getname();
+    struct file *file;
+    int i;
+
+    snprintf(path, PATH_MAX, "%s%d", TAIMPORT_BASE, persona);
+    file = filp_open(path, O_RDONLY, 0);
+    if (! IS_ERR(file)) {
+        if( kernel_read(file, 0, buff, TAMAC_LEN) == TAMAC_LEN ) {
+            for(i=0; i<VOS_MAC_ADDRESS_LEN; i++) {
+                target[i] = pabx_hex_to_int(buff[i*3])*16 + pabx_hex_to_int(buff[i*3 + 1]);
+            }
+            pr_info("pabx: hwaddr of wlan persona %d set to: %02x:%02x:%02x:%02x:%02x:%02x (from: %s)", 
+                persona,
+                target[0],target[1],target[2],target[3],target[4],target[5],
+                path);
+        }
+        filp_close(file, 0);
+    }
+}
+
 /**------------------------------------------------------------------------
 
   \brief vos_nv_readMultiMacAddress() - return the Multiple MAC addresses
@@ -1014,6 +1051,11 @@ VOS_STATUS vos_nv_readMultiMacAddress( v_U8_t *pMacAddress,
       pNVMacAddress = fieldImage.macAddr;
       for(countLoop = 0; countLoop < macCount; countLoop++)
       {
+         /* 
+          * pNVMacAddress is NULL on sony devices as taimport
+          * writes the real value to /data/etc...
+         **/
+         pabx_set_mac_from_taimport(pNVMacAddress + (countLoop * VOS_MAC_ADDRESS_LEN), countLoop);
          vos_mem_copy(pMacAddress + (countLoop * VOS_MAC_ADDRESS_LEN),
                       pNVMacAddress + (countLoop * VOS_MAC_ADDRESS_LEN),
                       VOS_MAC_ADDRESS_LEN);
@@ -2349,6 +2391,8 @@ int wlan_hdd_crda_reg_notifier(struct wiphy *wiphy,
     {
        int status;
        wiphy_dbg(wiphy, "info: set by user\n");
+       memset(ccode, 0, WNI_CFG_COUNTRY_CODE_LEN);
+       memcpy(ccode, request->alpha2, 2);
        init_completion(&change_country_code);
        /* We will process hints by user from nl80211 in driver.
         * sme_ChangeCountryCode will set the country to driver
@@ -2364,7 +2408,7 @@ int wlan_hdd_crda_reg_notifier(struct wiphy *wiphy,
        status = sme_ChangeCountryCode(pHddCtx->hHal,
                                    (void *)(tSmeChangeCountryCallback)
                                    vos_nv_change_country_code_cb,
-                                   request->alpha2,
+                                   ccode,
                                    &change_country_code,
                                    pHddCtx->pvosContext,
                                    eSIR_FALSE);
