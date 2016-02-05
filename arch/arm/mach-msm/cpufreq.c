@@ -69,7 +69,7 @@ uint32_t maxscroff_freq = 810000;
 uint32_t maxscroff = 1;
 
 /* ex max freq */
-uint32_t ex_max_freq;
+uint32_t ex_max_freq = 0;
 
 struct cpufreq_suspend_t {
 	struct mutex suspend_mutex;
@@ -371,11 +371,12 @@ static int __cpuinit msm_cpufreq_init(struct cpufreq_policy *policy)
 	policy->max = CONFIG_MSM_CPU_FREQ_MAX;
 #endif
 
+	ex_max_freq = policy->cpuinfo.max_freq;
+
 	if (is_clk)
 		cur_freq = clk_get_rate(cpu_clk[policy->cpu])/1000;
 	else
 		cur_freq = acpuclk_get_rate(policy->cpu);
-
 	if (cpufreq_frequency_table_target(policy, table, cur_freq,
 	    CPUFREQ_RELATION_H, &index) &&
 	    cpufreq_frequency_table_target(policy, table, cur_freq,
@@ -483,10 +484,20 @@ static int msm_cpufreq_resume(struct cpufreq_policy *policy)
 
 /** max freq interface **/
 
+void restore_ex_max_freq(void)
+{
+	struct cpufreq_policy policy;
+	int ret;
+	ret = cpufreq_get_policy(&policy, 0);
+	ex_max_freq = policy.cpuinfo.max_freq;
+}
+
+EXPORT_SYMBOL(restore_ex_max_freq);
+
 static ssize_t show_ex_max_freq(struct cpufreq_policy *policy, char *buf)
 {
 	if (!ex_max_freq)
-		ex_max_freq = policy->max;
+		ex_max_freq = policy->cpuinfo.max_freq;
 
 	return sprintf(buf, "%u\n", ex_max_freq);
 }
@@ -610,7 +621,6 @@ struct freq_attr msm_cpufreq_attr_max_screen_off = {
 
 static struct freq_attr *msm_freq_attr[] = {
 	&cpufreq_freq_attr_scaling_available_freqs,
-/** maxscreen off sysfs interface **/
 	&msm_cpufreq_attr_max_screen_off_khz,
 	&msm_cpufreq_attr_max_screen_off,
 	&msm_cpufreq_attr_ex_max_freq,
