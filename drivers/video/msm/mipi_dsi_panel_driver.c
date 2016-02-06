@@ -20,6 +20,10 @@
 #include <linux/time.h>
 #include <linux/mutex.h>
 
+#ifdef CONFIG_STATE_NOTIFIER
+#include <linux/state_notifier.h>
+#endif
+
 #include <video/mipi_dsi_panel.h>
 #include "msm_fb.h"
 #include "mdp4.h"
@@ -521,6 +525,9 @@ static int panel_on(struct platform_device *pdev)
 			goto unlock_and_exit;
 		dsi_data->panel_state = PANEL_ON;
 	}
+#ifdef CONFIG_STATE_NOTIFIER
+	state_resume();
+#endif
 unlock_and_exit:
 	mutex_unlock(&dsi_data->lock);
 exit:
@@ -585,6 +592,11 @@ static int panel_off(struct platform_device *pdev)
 		goto unlock_and_exit;
 	}
 	dev_info(dev, "%s: DISPLAY_OFF sent\n", __func__);
+
+#ifdef CONFIG_STATE_NOTIFIER
+	state_suspend();
+#endif
+
 power_off:
 	if (dsi_data->lcd_power)
 		ret = dsi_data->lcd_power(FALSE);
