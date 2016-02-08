@@ -350,9 +350,6 @@ static inline unsigned int cpufreq_quick_get_max(unsigned int cpu)
 }
 #endif
 
-enum {
-	BOOT_CPU = 0,
-};
 
 #define MAX_FREQ_LIMIT 1512000
 
